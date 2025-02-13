@@ -2238,6 +2238,72 @@ abstract class Base extends TestCase
         return $documents;
     }
 
+    public function testCreateDocumentsWithDifferentAttributes(): void
+    {
+        $collection = 'testDiffAttributes';
+
+        static::getDatabase()->createCollection($collection);
+
+        $this->assertEquals(true, static::getDatabase()->createAttribute($collection, 'string', Database::VAR_STRING, 128, true));
+        $this->assertEquals(true, static::getDatabase()->createAttribute($collection, 'integer', Database::VAR_INTEGER, 0, false));
+        $this->assertEquals(true, static::getDatabase()->createAttribute($collection, 'bigint', Database::VAR_INTEGER, 8, false));
+        $this->assertEquals(true, static::getDatabase()->createAttribute($collection, 'string_default', Database::VAR_STRING, 128, false, 'default'));
+
+        $documents = [
+            new Document([
+                '$id' => 'first',
+                'string' => 'text📝',
+                'integer' => 5,
+                'string_default' => 'not_default',
+            ]),
+            new Document([
+                '$id' => 'second',
+                'string' => 'text📝',
+            ]),
+        ];
+
+        $documents = static::getDatabase()->createDocuments($collection, $documents);
+
+        $this->assertEquals(2, count($documents));
+
+        $this->assertEquals('text📝', $documents[0]->getAttribute('string'));
+        $this->assertEquals(5, $documents[0]->getAttribute('integer'));
+        $this->assertEquals('not_default', $documents[0]->getAttribute('string_default'));
+        $this->assertEquals('text📝', $documents[1]->getAttribute('string'));
+        $this->assertNull($documents[1]->getAttribute('integer'));
+        $this->assertEquals('default', $documents[1]->getAttribute('string_default'));
+
+        /**
+         * Expect fail, mix of internalId and no internalId
+         */
+        $documents = [
+            new Document([
+                '$id' => 'third',
+                '$internalId' => 'third',
+                'string' => 'text📝',
+            ]),
+            new Document([
+                '$id' => 'fourth',
+                'string' => 'text📝',
+            ]),
+        ];
+
+        try {
+            static::getDatabase()->createDocuments($collection, $documents);
+            $this->fail('Failed to throw exception');
+        } catch (DatabaseException $e) {
+        }
+
+        $documents = array_reverse($documents);
+        try {
+            static::getDatabase()->createDocuments($collection, $documents);
+            $this->fail('Failed to throw exception');
+        } catch (DatabaseException $e) {
+        }
+
+        static::getDatabase()->deleteCollection($collection);
+    }
+
     public function testCreateOrUpdateDocuments(): void
     {
         if (!static::getDatabase()->getAdapter()->getSupportForUpserts()) {
@@ -2352,8 +2418,8 @@ abstract class Base extends TestCase
         $collection = 'testCreateOrUpdateInplace';
 
         static::getDatabase()->createCollection($collection);
-        static::getDatabase()->createAttribute($collection, 'string', Database::VAR_STRING, 128, true);
-        static::getDatabase()->createAttribute($collection, 'integer', Database::VAR_INTEGER, 0, true);
+        static::getDatabase()->createAttribute($collection, 'string', Database::VAR_STRING, 128, false);
+        static::getDatabase()->createAttribute($collection, 'integer', Database::VAR_INTEGER, 0, false);
 
         $documents = [
             new Document([
@@ -2395,6 +2461,21 @@ abstract class Base extends TestCase
 
         foreach ($documents as $document) {
             $this->assertEquals(6, $document->getAttribute('integer'));
+        }
+
+        $documents[0]->setAttribute('integer', -1);
+        $documents[1]->setAttribute('integer', -1);
+
+        static::getDatabase()->createOrUpdateDocumentsWithIncrease(
+            collection: $collection,
+            attribute:'integer',
+            documents: $documents
+        );
+
+        $documents = static::getDatabase()->find($collection);
+
+        foreach ($documents as $document) {
+            $this->assertEquals(5, $document->getAttribute('integer'));
         }
     }
 
